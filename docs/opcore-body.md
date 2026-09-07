@@ -47,9 +47,11 @@ can create record {
         field "fieldKeyType" type="string"
         array "records" raw=true required=true
     }
-    set typecast=false
+    set typecast=#false
 }
 ```
+
+A `set` value is a KDL keyword, so it is `#false` and `#true`. Bare `false` lexes as an identifier and fails closed with `invalid identifier: "false"`.
 
 Before this, declaring both silently discarded every declared field at request time: the pin replaced the whole body and the caller's input never left the process. Nothing warned, because the guardfile parsed clean.
 
