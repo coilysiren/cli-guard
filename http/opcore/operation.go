@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math"
 	neturl "net/url"
 	"reflect"
@@ -131,15 +132,16 @@ func responseVars(d Descriptor, a Args) map[string]any {
 	for name, value := range a.QueryValues {
 		out[name] = value
 	}
+	// Mirrors assembleBody: only a flagless, mappingless leaf loses its caller
+	// body to the pins, so a postcondition reads what actually went upstream.
 	body := a.Body
-	// A mapped body keeps its caller values, the pins riding beside them below.
-	if len(d.FixedBody) > 0 && len(d.BodyMappings) == 0 {
+	if len(d.FixedBody) > 0 && len(d.BodyMappings) == 0 && len(d.BodyFlags) == 0 {
 		body = d.FixedBody
 	}
 	for name, value := range body {
 		out[name] = value
 	}
-	if len(d.BodyMappings) > 0 {
+	if len(d.FixedBody) > 0 && (len(d.BodyMappings) > 0 || len(d.BodyFlags) > 0) {
 		for name, value := range d.FixedBody {
 			out[name] = value
 		}
@@ -650,8 +652,8 @@ func AssembleBody(d Descriptor, body map[string]any) ([]byte, error) {
 	return Operation{Desc: d}.assembleBody(body)
 }
 
-// assembleBody builds the body JSON: a mapped body projects its sources and
-// carries any pins, else pins alone, else the supplied object; empty is nil.
+// assembleBody builds the body JSON, in the four modes docs/opcore-body.md
+// describes. Empty is nil.
 func (o Operation) assembleBody(body map[string]any) ([]byte, error) {
 	if err := validateBodyMappingMode(o.Desc); err != nil {
 		return nil, exitcode.New(exitcode.Internal, "internal", err,
@@ -664,16 +666,29 @@ func (o Operation) assembleBody(body map[string]any) ([]byte, error) {
 	if len(o.Desc.BodyMappings) > 0 {
 		return projectMappedBody(body, o.Desc.BodyMappings, o.Desc.FixedBody)
 	}
-	if len(o.Desc.FixedBody) > 0 {
+	// No flags to fill means a state-toggle leaf that owns its whole body.
+	if len(o.Desc.FixedBody) > 0 && len(o.Desc.BodyFlags) == 0 {
 		return json.Marshal(o.Desc.FixedBody)
 	}
 	if err := validateBodyFields(body, o.Desc.BodyFlags, ""); err != nil {
 		return nil, err
 	}
+	if len(o.Desc.FixedBody) > 0 {
+		return json.Marshal(pinnedOver(body, o.Desc.FixedBody))
+	}
 	if len(body) == 0 {
 		return nil, nil
 	}
 	return json.Marshal(body)
+}
+
+// pinnedOver lays the pins over a caller body, the precedence
+// projectMappedBody already gives a mapped one.
+func pinnedOver(body, fixed map[string]any) map[string]any {
+	out := make(map[string]any, len(body)+len(fixed))
+	maps.Copy(out, body)
+	maps.Copy(out, fixed)
+	return out
 }
 
 // validateBodyFields enforces required body fields recursively. Optional

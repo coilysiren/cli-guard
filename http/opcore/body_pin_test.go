@@ -306,3 +306,54 @@ func TestMappedBodyRefusesTheWrongShapeWithoutFiring(t *testing.T) {
 		})
 	}
 }
+
+// The tracker shape: a caller fills the declared flags while the guardfile pins
+// the argument that arms upstream schema auto-create.
+func TestPinnedBodyRidesBesideBodyFlags(t *testing.T) {
+	op, got := bodyEcho(t, opcore.Descriptor{
+		Method: http.MethodPost,
+		Path:   "/record",
+		Leaf:   "record",
+		BodyFlags: []opcore.Field{
+			{Name: "fieldKeyType", Type: "string"},
+			{Name: "records", Type: "array", Items: "string", Required: true},
+		},
+		FixedBody: map[string]any{"typecast": false},
+	})
+	if _, err := op.Execute(context.Background(), opcore.Args{Body: map[string]any{
+		"fieldKeyType": "name",
+		"records":      []any{"one"},
+		// A caller naming the pinned key must not reach it.
+		"typecast": true,
+	}}); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	want := map[string]any{
+		"fieldKeyType": "name",
+		"records":      []any{"one"},
+		"typecast":     false,
+	}
+	if !reflect.DeepEqual(*got, want) {
+		t.Fatalf("outgoing body = %#v, want %#v", *got, want)
+	}
+}
+
+// Pins buy no leaf out of its own validation: a missing required flag still
+// fails closed, and nothing reaches the wire.
+func TestPinnedBodyStillEnforcesRequiredFlags(t *testing.T) {
+	op, got := bodyEcho(t, opcore.Descriptor{
+		Method:    http.MethodPost,
+		Path:      "/record",
+		Leaf:      "record",
+		BodyFlags: []opcore.Field{{Name: "records", Type: "array", Items: "string", Required: true}},
+		FixedBody: map[string]any{"typecast": false},
+	})
+	if _, err := op.Execute(context.Background(), opcore.Args{Body: map[string]any{
+		"fieldKeyType": "name",
+	}}); err == nil {
+		t.Fatal("a missing required body flag should fail closed")
+	}
+	if len(*got) != 0 {
+		t.Errorf("body reached the wire: %#v", *got)
+	}
+}
