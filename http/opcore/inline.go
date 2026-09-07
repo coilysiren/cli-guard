@@ -247,7 +247,7 @@ func (p *inlineParser) parseGrant(n *kdl.Node) error {
 }
 
 // shapeGrant settles the request shape once every child is applied: a sql
-// grant has no URL to template, and a `set` body owns itself.
+// grant has no URL to template, and a pin is checked against any mapping.
 func shapeGrant(d *Descriptor, verb, resource string) error {
 	if d.SQL != nil {
 		d.Method, d.MethodInferred = "", false
@@ -256,7 +256,6 @@ func shapeGrant(d *Descriptor, verb, resource string) error {
 	}
 	d.PathParams = PathParamsInOrder(d.Path)
 	if len(d.FixedBody) > 0 {
-		d.BodyFlags = nil
 		if err := validateFixedBodyMappings(d.FixedBody, d.BodyMappings); err != nil {
 			return fmt.Errorf("opcore: can %s %s: %w", verb, resource, err)
 		}

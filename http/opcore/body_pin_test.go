@@ -357,3 +357,55 @@ func TestPinnedBodyStillEnforcesRequiredFlags(t *testing.T) {
 		t.Errorf("body reached the wire: %#v", *got)
 	}
 }
+
+// The guardfile path, which the struct-built tests above do not exercise:
+// shapeGrant used to drop BodyFlags whenever a pin was present.
+func TestInlinePinnedBodyKeepsDeclaredFields(t *testing.T) {
+	src := `wrap ward mcp teable {
+        base-url "http://example.invalid/api"
+        auth bearer { value env "T" }
+        can create record {
+            path "/record"
+            body {
+                field "fieldKeyType" type="string"
+                array "records" raw=#true required=#true
+            }
+            set typecast=#false
+        }
+    }`
+	descs, _, err := opcore.ParseInline([]byte(src))
+	if err != nil {
+		t.Fatalf("ParseInline: %v", err)
+	}
+	d := descs[0]
+	if len(d.BodyFlags) != 2 {
+		t.Fatalf("body flags = %#v, want fieldKeyType and records to survive the pin", d.BodyFlags)
+	}
+	// The tool schema is what a caller sees, so the pin must be absent from it
+	// while the declared fields stay.
+	s := d.InputSchema()
+	if _, ok := s.Properties["typecast"]; ok {
+		t.Error("pinned key must not appear as an input")
+	}
+	for _, name := range []string{"fieldKeyType", "records"} {
+		if _, ok := s.Properties[name]; !ok {
+			t.Errorf("declared body field %q missing from the input schema", name)
+		}
+	}
+	op, got := bodyEcho(t, d)
+	if _, err := op.Execute(context.Background(), opcore.Args{Body: map[string]any{
+		"fieldKeyType": "name",
+		"records":      []any{"one"},
+		"typecast":     true,
+	}}); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	want := map[string]any{
+		"fieldKeyType": "name",
+		"records":      []any{"one"},
+		"typecast":     false,
+	}
+	if !reflect.DeepEqual(*got, want) {
+		t.Fatalf("outgoing body = %#v, want %#v", *got, want)
+	}
+}
